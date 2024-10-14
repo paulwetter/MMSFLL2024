@@ -1,60 +1,14 @@
-# Define the SCCM Site Server and Site Code
-$SCCMServer = "WS-CM1.wetter.wetterssource.com"
-$SCCMSQLServer = "WS-CM1.wetter.wetterssource.com"
-$SiteCode = "WS1"  # Replace with your SCCM site code
-$CmDatabase = "CM_$SiteCode"
+$ExportDirectory = "C:\Temp"
+$CMExport = "$ExportDirectory\CMDevices.csv"
+$AdExport = "$ExportDirectory\ADComputers.csv"
+$AdUserExport = "$ExportDirectory\ADUsers.csv"
+$IntuneExport = "$ExportDirectory\Intune.csv"
 
-# Define the WMI namespace
-$namespace = "ROOT\sms\site_$SiteCode"
-
-# Query all devices (computers) from SCCM
-$devices = Get-WmiObject -Namespace $namespace -Class SMS_R_System -ComputerName $SCCMServer
-
-# Display the device names
-$devices | Select-Object *
-
-#convert a guid to a readable guid.
-[guid]::new($devices[7].ObjectGUID).guid
-
-#Combined Device Resource:
-
-
-# Define the WMI namespace
-$namespace = "ROOT\sms\site_$SiteCode"
-
-# Query all devices (computers) from SCCM
-$devices = Get-WmiObject -Namespace $namespace -Class CombinedDeviceResources -ComputerName $SCCMServer
-
-# Display the device names
-$devices | Select-Object *
-
-##Admin Service
-
-# Define the SCCM Admin Service URL
-$AdminServiceUrl = "https://$SCCMServer/AdminService/"
-
-# Define the endpoint for retrieving device information
-$endpoint = "$AdminServiceUrl/wmi/SMS_R_System"
-
-#Headers to send and return proper data type
-$headers = @{
-    "Content-Type" = "application/json"
-    "Accept" = "application/json"
-}
-
-# Send an HTTP GET request to the Admin Service
-$response = Invoke-RestMethod -Uri $endpoint -Method Get -Headers $headers -UseDefaultCredentials
-
-
-[guid]::new([System.Convert]::FromBase64String($response.value[7].ObjectGUID))
-
-
-
-#region Export My Data
-
+#region CM Export
 $CDRQuery = @'
-SELECT [MachineID]
+SELECT [ResourceID]
       ,[Name]
+	  ,CAST(Object_GUID0 AS UNIQUEIDENTIFIER) AS 'ObjectGuid'
       ,[SMSID]
       ,[SiteCode]
       ,[Domain]
@@ -97,9 +51,9 @@ SELECT [MachineID]
       ,[CA_ComplianceEvalTime]
       ,[CA_ErrorDetails]
       ,[CA_ErrorLocation]
-      ,[AADTenantID]
-      ,[AADDeviceID]
-      ,[SerialNumber]
+      ,CDR.[AADTenantID]
+      ,CDR.[AADDeviceID]
+      ,CDR.[SerialNumber]
       ,[PrimaryUser]
       ,[CurrentLogonUser]
       ,[LastLogonUser]
@@ -107,7 +61,8 @@ SELECT [MachineID]
       ,[SMBIOSGUID]
       ,[CoManaged]
       ,[BoundaryGroups]
-  FROM [v_CombinedDeviceResources]
+  FROM [v_CombinedDeviceResources] CDR
+  JOIN [v_R_System] RS on RS.ResourceID = CDR.MachineID
   where ArchitectureKey != 2
 '@
 function Invoke-SqlDataReader {
@@ -238,5 +193,91 @@ function Invoke-SqlDataReader {
 }
 
 $results = Invoke-SqlDataReader -ServerInstance $SCCMSQLServer -Database $CmDatabase -Query $CDRQuery
-#$results | Export-Csv -Path
-#Endregion Export
+$results | Export-Csv -Path $CMExport -NoTypeInformation -Force
+#Endregion CM Export
+
+#region AD Export
+$ADProperties = @(
+    "name"
+    "dNSHostName"
+    "operatingSystem"
+    "operatingSystemVersion"
+    "lastLogon"
+    "pwdLastSet"
+    "lastLogonTimestamp"
+    "lastLogon"
+    "objectGUID"
+    "objectSid"
+    "pwdLastSet"
+    "userAccountControl"
+    "distinguishedName"
+    "whenCreated"
+)
+
+$AdComputers = Get-ADComputer -Filter * -Properties $ADProperties
+
+[System.Collections.Generic.List[object]]$computers = @()
+foreach ($comp in $AdComputers){
+    $computers.Add([PSCustomObject]@{
+            dNSHostName            = $comp.DNSHostName
+            Name                   = $comp.Name
+            OperatingSystemVersion = $comp.OperatingSystemVersion
+            operatingSystem        = $comp.OperatingSystem
+            LastLogon              = [datetime]::FromFileTime($comp.lastLogon)
+            lastLogonTimestamp     = [datetime]::FromFileTime($comp.lastLogonTimestamp)
+            ObjectGUID             = $comp.ObjectGUID.Guid
+            ObjectSid              = $comp.SID.Value
+            CreatedDate            = $comp.whenCreated
+            DistinguishedName      = $comp.distinguishedName
+            userAccountControl     = $comp.userAccountControl
+            pwdLastSet             = [DateTime]::FromFileTime($comp.pwdLastSet)
+            Enabled                = $comp.Enabled
+        })
+}
+
+$computers | Export-Csv -Path $AdExport -NoTypeInformation -Force
+#endregion AD Export
+
+#region AD Users
+$users = Get-ADUser -Filter *
+$users | Export-Csv -Path $AdUserExport -NoTypeInformation -Force
+
+#endregion Ad Users
+
+#region Intune Devices
+$scopes = @(
+    "User.Read.All"
+    "BitlockerKey.Read.All"
+    "DeviceManagementManagedDevices.Read.All"
+)
+
+Connect-MgGraph -Scopes $scopes -NoWelcome
+
+$intuneAttributes = @(
+    "AzureAdDeviceId"
+    "AzureAdRegistered"
+    "ComplianceState"
+    "DeviceEnrollmentType"
+    "DeviceName"
+    "DeviceRegistrationState"
+    "EnrolledDateTime"
+    "TotalStorageSpaceInBytes"
+    "FreeStorageSpaceInBytes"
+    "Id"
+    "IsEncrypted"
+    "LastSyncDateTime"
+    "ManagedDeviceOwnerType"
+    "ManagementCertificateExpirationDate"
+    "Manufacturer"
+    "Model"
+    "OSVersion"
+    "OperatingSystem"
+    "SerialNumber"
+    "UserDisplayName"
+    "UserId"
+    "UserPrincipalName"    
+)
+
+$Devices=Get-MgDeviceManagementManagedDevice
+$Devices | Select-Object -Property $intuneAttributes | Export-Csv -Path $IntuneExport -NoTypeInformation -Force
+#endregion Intune Devices
