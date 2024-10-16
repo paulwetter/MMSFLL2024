@@ -8,7 +8,7 @@ $Response = Invoke-GraphRequest @Parameters
 $token = $Response.RequestMessage.Headers.Authorization.Parameter
 
 
-
+#region REST Method
 $URL = "https://graph.microsoft.com/beta/deviceManagement/manageddevices(`'b52ebed7-3c82-418a-ae53-6b97bdc6240f`')"
 
 $URL = 'https://graph.microsoft.com/beta/deviceManagement/manageddevices/?$top=5'
@@ -20,7 +20,8 @@ $header = @{
 
 $result = Invoke-RestMethod -Method Get -UseBasicParsing -Uri $URL -Headers $header
 
-
+#region REST Pagination
+# Graph rest API will typically return either the first 100 or first 1000 records. To retieve them all, you can use the @odata.nextLink
 
 # Variables for paging test.   
 $uri = 'https://graph.microsoft.com/beta/deviceManagement/manageddevices/?$top=5' # Graph API endpoint for devices limited to 5 per page (computers)
@@ -65,7 +66,12 @@ $allComputers = Get-AllGraphResults -initialUri $uri -bearerToken $token
 
 # Output the result
 $allComputers
+#endregion REST Pagination
+#endregion REST Method
 
+
+#region MgGraph Module
+#MgGraph highly simplifies graph calls, especially the authentication portion.
 $scopes = @(
     "User.Read.All"
     "BitlockerKey.Read.All"
@@ -73,8 +79,14 @@ $scopes = @(
 )
 
 Connect-MgGraph -Scopes $scopes -NoWelcome
-$inDevices=Get-MgDeviceManagementManagedDevice
+$intuneDevices=Get-MgDeviceManagementManagedDevice
+$intuneDevices.Count
+$intuneDevices
 $BitlockerKeys = Get-MgInformationProtectionBitlockerRecoveryKey
+$BitlockerKeys.Count
+$BitlockerKeys
+
+#endregion MgGraph
 
 
 $intuneAttributes = @(

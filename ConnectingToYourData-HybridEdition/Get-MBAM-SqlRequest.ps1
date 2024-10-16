@@ -127,6 +127,8 @@ function Invoke-SqlDataReader {
 
 $SQLServer = "WS-MBAM.wetter.wetterssource.com"
 $SQLDatabase = "MBAM Recovery and Hardware"
+
+
 $MbamQuery = @"
 SELECT TOP (1000) M.[Id]
       ,M.[LastUpdateTime]
@@ -144,3 +146,7 @@ SELECT TOP (1000) M.[Id]
   Left Join [RecoveryAndHardwareCore].[VolumeTypes] VT on VT.Id = V.VolumeTypeId
 "@
 Invoke-SqlDataReader -ServerInstance $SQLServer -Database $SQLDatabase -Query $MbamQuery
+
+$KeyToFind = '16d58bb6-1bb2-4fb2-9d0d-acb7a9472afd'
+$RunStoredProcedure = "EXEC RecoveryAndHardwareRead.GetRecoveryKey @RecoveryKeyId='$KeyToFind', @Reason='Other'"
+Invoke-SqlDataReader -ServerInstance $SQLServer -Database $SQLDatabase -Query $RunStoredProcedure
