@@ -4,6 +4,14 @@ $AdExport = "$ExportDirectory\ADComputers.csv"
 $AdUserExport = "$ExportDirectory\ADUsers.csv"
 $IntuneExport = "$ExportDirectory\Intune.csv"
 
+
+# Define the SCCM Site Server and Site Code
+$SCCMServer = "WS-CM1.wetter.wetterssource.com"
+$SCCMSQLServer = "WS-CM1.wetter.wetterssource.com"
+$SiteCode = "WS1"  # Replace with your SCCM site code
+$CmDatabase = "CM_$SiteCode"
+
+
 #region CM Export
 $CDRQuery = @'
 SELECT [ResourceID]

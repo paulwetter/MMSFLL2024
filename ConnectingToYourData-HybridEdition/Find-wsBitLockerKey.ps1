@@ -1,20 +1,22 @@
-# If (-not(Get-module -ListAvailable -name MSOnline)) {
-#     write-host "MSOnline module is missing."
-#     write-host "Run from elevated PS: Install-Module MSOnline -force"
-#     break
-# }
-# If (-not(Get-module -ListAvailable -name ActiveDirectory)) {
-#     write-host "ActiveDirectory module is missing."
-#     write-host "Run from elevated PS: Install-Module ActiveDirectory -force"
-#     break
-# }
+
 
 
 
 function Find-wsBitLockerKey {
     param ()
 
-    #MBAM
+        If (-not(Get-module -ListAvailable -name Microsoft.Graph)) {
+        write-host "MSOnline module is missing."
+        write-host "Run from elevated PS: Install-Module Microsoft.Graph -Scope CurrentUser -Repository PSGallery -Force"
+        break
+    }
+    If (-not(Get-module -ListAvailable -name ActiveDirectory)) {
+        write-host "ActiveDirectory module is missing."
+        write-host "Run from elevated PS: Install-Module ActiveDirectory -force"
+        break
+    }
+
+    #Define MBAM
     $mbamUrl = "https://ws-mbam.wetter.wetterssource.com/MBAMAdministrationService/AdministrationService.svc"
 
     # Define the SCCM Site Server and Site Code
@@ -23,7 +25,15 @@ function Find-wsBitLockerKey {
     $SiteCode = "WS1"
     $CmDatabase = "CM_$SiteCode"
 
+    # Decide which sources you will search for the key at.
+    $SourcesEnabled = @{
+        Mbam = $true
+        AD = $true
+        CM = $true
+        MeId = $true    
+    }
 
+    #region Make logo image for page  see https://wetterssource.com/ondemandtoast [Update Images] for more details
     $LogoImage = "${Env:Temp}\MMSFFL.png"
     $B64Logo = @'
 iVBORw0KGgoAAAANSUhEUgAAAFQAAABUCAYAAAAcaxDBAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAAEnQAABJ0Ad5mH3gAAAAZdEVYdFNvZnR3YXJlAEFkb2JlIEltYWdlUmVhZHlxyWU8AAAEAmlUWHRYTUw6Y29tLmFkb2JlLnhtcAAAAAAAPD94cGFja2V0IGJlZ2luPSLvu78iIGlkPSJXNU0wTXBDZWhpSHpyZVN6TlRjemtjOWQiPz4gPHg6eG1wbWV0YSB4bWxuczp4PSJhZG9iZTpuczptZXRhLyIgeDp4bXB0az0iQWRvYmUgWE1QIENvcmUgOS4wLWMwMDAgNzkuZGE0YTdlNWVmLCAyMDIyLzExLzIyLTEzOjUwOjA3ICAgICAgICAiPiA8cmRmOlJERiB4bWxuczpyZGY9Imh0dHA6Ly93d3cudzMub3JnLzE5OTkvMDIvMjItcmRmLXN5bnRheC1ucyMiPiA8cmRmOkRlc2NyaXB0aW9uIHJkZjphYm91dD0iIiB4bWxuczp4bXBNTT0iaHR0cDovL25zLmFkb2JlLmNvbS94YXAvMS4wL21tLyIgeG1sbnM6c3RSZWY9Imh0dHA6Ly9ucy5hZG9iZS5jb20veGFwLzEuMC9zVHlwZS9SZXNvdXJjZVJlZiMiIHhtbG5zOnhtcD0iaHR0cDovL25zLmFkb2JlLmNvbS94YXAvMS4wLyIgeG1sbnM6ZGM9Imh0dHA6Ly9wdXJsLm9yZy9kYy9lbGVtZW50cy8xLjEvIiB4bXBNTTpPcmlnaW5hbERvY3VtZW50SUQ9InV1aWQ6NUQyMDg5MjQ5M0JGREIxMTkxNEE4NTkwRDMxNTA4QzgiIHhtcE1NOkRvY3VtZW50SUQ9InhtcC5kaWQ6MkE2MjQ4MDg4OTdGMTFFRThBOEQ5MzJGM0NCNjI2QUIiIHhtcE1NOkluc3RhbmNlSUQ9InhtcC5paWQ6MkE2MjQ4MDc4OTdG
@@ -53,8 +63,10 @@ nJWDr6cH05MlLMoXcUWrD8uiAcxQAnb5GDW5GfyqksM+sjZJL6bkqyDrFDETyOEXkRLui2cwnhzGcPtR
     If (!(Test-Path $LogoImage)) {
         [System.IO.File]::WriteAllBytes($LogoImage,$Bytes)
     }
+    #endregion Make Logo
 
     Function Write-BitLockerKey {
+        ## Function writes the bitlocker key information to the table in the WPF UI.
         [CmdletBinding()]
         param (
             [Parameter(Mandatory=$True)]
@@ -72,6 +84,7 @@ nJWDr6cH05MlLMoXcUWrD8uiAcxQAnb5GDW5GfyqksM+sjZJL6bkqyDrFDETyOEXkRLui2cwnhzGcPtR
         $window.Dispatcher.Invoke([action]{},"Render")
     }
     
+    #Region Common Fuctions for building a WPF UI 
     function Convert-XAMLtoWindow {
         param
         (
@@ -112,9 +125,10 @@ nJWDr6cH05MlLMoXcUWrD8uiAcxQAnb5GDW5GfyqksM+sjZJL6bkqyDrFDETyOEXkRLui2cwnhzGcPtR
         }.Wait()
         $result
     }
+    #EndRegion Common Fuctions for building a WPF UI 
     
-    
-$xaml1 = @"
+    #Region XAML for creating the WPF UI - The only variable that goes into this is the logo image.
+    $xaml1 = @"
 <Window
  xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation'
  xmlns:x='http://schemas.microsoft.com/winfx/2006/xaml'
@@ -167,31 +181,52 @@ $xaml1 = @"
     </Window>
 "@
 
+    # build the window object to manipulate and interact with in powershell.
     $window = Convert-XAMLtoWindow -XAML $xaml1
     $window.View1.ItemsSource = @()
 
+    #add a Click action to the Find Keys button.
     $window.ButFindKeys.add_Click{
+        #change the button to searching....
         $window.ButFindKeys.Content = "Searching..."
         $window.Dispatcher.Invoke([action] {}, "Render")
+        #Read the key text from the input box in the dialog
         $KeyToFind = $window.KeyId.Text
-        $AadKey = Get-MgInformationProtectionBitlockerRecoveryKey -BitlockerRecoveryKeyId "$KeyToFind" -Property Key
-        If(-not [string]::IsNullOrEmpty($AadKey.Key)){
-            Write-BitLockerKey -Source "Entra ID" -KeyId $KeyToFind -RecoveryKey "$($AadKey.Key)"
+
+        If ($SourcesEnabled.MeId -eq $true){
+            $AadKey = Get-MgInformationProtectionBitlockerRecoveryKey -BitlockerRecoveryKeyId "$KeyToFind" -Property Key -ErrorAction SilentlyContinue
+            If(-not [string]::IsNullOrEmpty($AadKey.Key)){
+                Write-BitLockerKey -Source "Entra ID" -KeyId $KeyToFind -RecoveryKey "$($AadKey.Key)"
+            }    
         }
-        $rg=Convert-GuidToHexArray -guid "$KeyToFind"
-        $AdKey = Get-ADObject -Filter {objectclass -eq "msFVE-RecoveryInformation" -and msFVE-RecoveryGuid -eq $rg} -Properties msFVE-RecoveryPassword, msFVE-RecoveryGuid | Select-Object @{Name="ComputerName";Expression={(Get-ADComputer -Identity "$(($_.DistinguishedName -split ',')[1..(($_.DistinguishedName -split ',').count -1)] -join ',')").Name}}, @{Name="RecoveryGuid";Expression={[guid]::new($_.'msFVE-RecoveryGuid')}}, msFVE-RecoveryPassword
-        If(-not [string]::IsNullOrEmpty($AdKey.'msFVE-RecoveryPassword')){
-            Write-BitLockerKey -Source "Active Directory" -KeyId $KeyToFind -RecoveryKey "$($AdKey.'msFVE-RecoveryPassword')"
+
+        if ($SourcesEnabled.AD -eq $true){
+            $rg=Convert-GuidToHexArray -guid "$KeyToFind"
+            $AdKey = Get-ADObject -Filter {objectclass -eq "msFVE-RecoveryInformation" -and msFVE-RecoveryGuid -eq $rg} -Properties msFVE-RecoveryPassword, msFVE-RecoveryGuid | Select-Object @{Name="ComputerName";Expression={(Get-ADComputer -Identity "$(($_.DistinguishedName -split ',')[1..(($_.DistinguishedName -split ',').count -1)] -join ',')").Name}}, @{Name="RecoveryGuid";Expression={[guid]::new($_.'msFVE-RecoveryGuid')}}, msFVE-RecoveryPassword
+            If(-not [string]::IsNullOrEmpty($AdKey.'msFVE-RecoveryPassword')){
+                Write-BitLockerKey -Source "Active Directory" -KeyId $KeyToFind -RecoveryKey "$($AdKey.'msFVE-RecoveryPassword')"
+            }    
         }
-        $MbamKey = Get-MBAMKey -KeyId $KeyToFind
-        If(-not [string]::IsNullOrEmpty($MbamKey)){
-            Write-BitLockerKey -Source "MBAM" -KeyId $KeyToFind -RecoveryKey "$MbamKey"
+
+        if ($SourcesEnabled.Mbam -eq $true){
+            $MbamKey = Get-MBAMKey -KeyId $KeyToFind
+            If(-not [string]::IsNullOrEmpty($MbamKey)){
+                Write-BitLockerKey -Source "MBAM" -KeyId $KeyToFind -RecoveryKey "$MbamKey"
+            }    
         }
-        $Query = "EXEC RecoveryAndHardwareRead.GetRecoveryKey @RecoveryKeyId='$KeyToFind', @Reason='Other'"
-        Invoke-SqlDataReader -ServerInstance $SCCMSQLServer -Database $CmDatabase -Query $Query
+
+        if ($SourcesEnabled.CM -eq $true){
+            $Query = "EXEC RecoveryAndHardwareRead.GetRecoveryKey @RecoveryKeyId='$KeyToFind', @Reason='Other'"
+            $CMKey = Invoke-SqlDataReader -ServerInstance $SCCMSQLServer -Database $CmDatabase -Query $Query
+            If(-not [string]::IsNullOrEmpty($CMKey.RecoveryKey)){
+                Write-BitLockerKey -Source "ConfigMgr" -KeyId $KeyToFind -RecoveryKey $CMKey.RecoveryKey
+            }
+        }
+        #set the button back to original text so it shows that its done searching.
         $window.ButFindKeys.Content = "Find Keys"
     }
 
+    #Add click action to button to clear the list of recovered keys.
     $window.ClearList.add_Click{
         $window.View1.ItemsSource = @()
     }
@@ -259,8 +294,8 @@ $xaml1 = @"
         }
     }
 
-    #region SQL Reader Function
-    function Invoke-SqlDataReader {
+    #region SQL Reader Function - Function i found a long time ago to run sql queries using the built in sql functions.
+function Invoke-SqlDataReader {
     
         <#
         .SYNOPSIS

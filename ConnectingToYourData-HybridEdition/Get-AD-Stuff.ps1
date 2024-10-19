@@ -1,4 +1,75 @@
-#region Ad Searcher
+#region Data Manipulation tools
+#guids are stored as hex arrays in ad.  This little function turns it into a readable string.
+function Convert-ADGuid {
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory = $true)]
+        $bytes
+    )
+    ([guid]::new($bytes)).Guid
+}
+
+#if you want to look up a object in AD via a specific guid, you have to convert it to the hex array to look it up.
+function Convert-GuidToHexArray {
+    param (
+        [string]$guid
+    )
+
+    # Convert the string GUID to a .NET Guid object
+    $guidBytes = [Guid]::Parse($guid).ToByteArray()
+
+    # Convert each byte to a hexadecimal string and concatenate it in the required format
+    $hexString = ""
+    foreach ($byte in $guidBytes) {
+        # Convert byte to 2-digit hexadecimal and append
+        $hexString += "\" + "{0:X2}" -f $byte
+    }
+
+    return $hexString
+}
+#endregion Data Manipulation tools
+
+#region Get-Adcomputer From ActiveDirectory PowerShell Module
+$ADProperties = @(
+    "name"
+    "dNSHostName"
+    "operatingSystem"
+    "operatingSystemVersion"
+    "lastLogon"
+    "pwdLastSet"
+    "lastLogonTimestamp"
+    "lastLogon"
+    "objectGUID"
+    "objectSid"
+    "userAccountControl"
+    "distinguishedName"
+    "whenCreated"
+)
+
+$AdComputers = Get-ADComputer -Filter * -Properties $ADProperties
+
+
+[System.Collections.Generic.List[object]]$computers = @()
+foreach ($comp in $AdComputers){
+    $computers.Add([PSCustomObject]@{
+            dNSHostName            = $comp.DNSHostName
+            Name                   = $comp.Name
+            OperatingSystemVersion = $comp.OperatingSystemVersion
+            operatingSystem        = $comp.OperatingSystem
+            LastLogon              = [DateTime]::FromFileTime($comp.lastLogon)
+            lastLogonTimestamp     = [DateTime]::FromFileTime($comp.lastLogonTimestamp)
+            ObjectGUID             = $comp.ObjectGUID.Guid
+            ObjectSid              = $comp.SID.Value
+            CreatedDate            = $comp.whenCreated
+            DistinguishedName      = $comp.distinguishedName
+            userAccountControl     = $comp.userAccountControl
+            pwdLastSet             = [DateTime]::FromFileTime($comp.pwdLastSet)
+            Enabled                = $comp.Enabled
+        })
+}
+#endregion Get-Adcomputer
+
+#region Using a .Net DirectorySearcher
 #Build The object
 $searcher = New-Object System.DirectoryServices.DirectorySearcher
 #create your ldap query
@@ -59,80 +130,11 @@ foreach ($result in $results) {
     )
 }
 $computers | Format-Table
-#endregion Ad Searcher
-
-#region Get-Adcomputer
-$ADProperties = @(
-    "name"
-    "dNSHostName"
-    "operatingSystem"
-    "operatingSystemVersion"
-    "lastLogon"
-    "pwdLastSet"
-    "lastLogonTimestamp"
-    "lastLogon"
-    "objectGUID"
-    "objectSid"
-    "pwdLastSet"
-    "userAccountControl"
-    "distinguishedName"
-    "whenCreated"
-)
-
-$AdComputers = Get-ADComputer -Filter * -Properties $ADProperties
+#endregion Using a .Net DirectorySearcher
 
 
-[System.Collections.Generic.List[object]]$computers = @()
-foreach ($comp in $AdComputers){
-    $computers.Add([PSCustomObject]@{
-            dNSHostName            = $comp.DNSHostName
-            Name                   = $comp.Name
-            OperatingSystemVersion = $comp.OperatingSystemVersion
-            operatingSystem        = $comp.OperatingSystem
-            LastLogon              = [DateTime]::FromFileTime($comp.lastLogon)
-            lastLogonTimestamp     = [DateTime]::FromFileTime($comp.lastLogonTimestamp)
-            ObjectGUID             = $comp.ObjectGUID.Guid
-            ObjectSid              = $comp.SID.Value
-            CreatedDate            = $comp.whenCreated
-            DistinguishedName      = $comp.distinguishedName
-            userAccountControl     = $comp.userAccountControl
-            pwdLastSet             = [DateTime]::FromFileTime($comp.pwdLastSet)
-            Enabled                = $comp.Enabled
-        })
-}
-#endregion Get-Adcomputer
-
-
-#region BitLocker Ad Searcher
+#region BitLocker with DirectorySearcher
 ##Query for bitlocker keys using the ad searcher:
-#guids are stored as hex arrays in ad.  This little function turns it into a readable string.
-function Convert-ADGuid {
-    [CmdletBinding()]
-    param (
-        [Parameter(Mandatory = $true)]
-        $bytes
-    )
-    ([guid]::new($bytes)).Guid
-}
-
-#if you want to look up a object in AD via a specific guid, you have to convert it to the hex array to look it up.
-function Convert-GuidToHexArray {
-    param (
-        [string]$guid
-    )
-
-    # Convert the string GUID to a .NET Guid object
-    $guidBytes = [Guid]::Parse($guid).ToByteArray()
-
-    # Convert each byte to a hexadecimal string and concatenate it in the required format
-    $hexString = ""
-    foreach ($byte in $guidBytes) {
-        # Convert byte to 2-digit hexadecimal and append
-        $hexString += "\" + "{0:X2}" -f $byte
-    }
-
-    return $hexString
-}
 
 # Define a searcher to query Active Directory
 $searcher = New-Object DirectoryServices.DirectorySearcher
@@ -165,9 +167,47 @@ foreach ($result in $results) {
             DN               = $distinguishedName
         })
 }
-#endregion
+#endregion BitLocker with DirectorySearcher
 
-#region BitLocker AD CmdLets
+#region BitLocker with AD CmdLets
 #this one liner will find all keys in ad using the Ad Cmdlets.
 Get-ADObject -Filter {objectclass -eq "msFVE-RecoveryInformation"} -Properties msFVE-RecoveryPassword, msFVE-RecoveryGuid | Select-Object @{Name="ComputerName";Expression={(Get-ADComputer -Identity "$(($_.DistinguishedName -split ',')[1..(($_.DistinguishedName -split ',').count -1)] -join ',')").Name}}, @{Name="RecoveryGuid";Expression={[guid]::new($_.'msFVE-RecoveryGuid')}}, msFVE-RecoveryPassword
+#endregion BitLocker with AD CmdLets
 
+
+#region Get Computers with COM Object
+# Define the LDAP path to your domain (root of AD)
+$rootDSE = [ADSI]"LDAP://RootDSE"
+$domainDN = $rootDSE.Get("defaultNamingContext")
+
+# Construct an ADSI query to find all computer objects in the OU and its children
+$query = "<LDAP://$domainDN>;(&(objectCategory=computer));name,operatingSystem,dNSHostName;subtree"
+
+# Perform the search
+$connection = New-Object -ComObject "ADODB.Connection"
+$command = New-Object -ComObject "ADODB.Command"
+$connection.Provider = "ADSDSOObject"
+$connection.Open("Active Directory Provider")
+$command.ActiveConnection = $connection
+$command.CommandText = $query
+
+# Execute the query and fetch results
+$recordSet = $command.Execute()
+
+# Loop through the results and display computer names
+while (!$recordSet.EOF) {
+    $name = $recordSet.Fields.Item("name").Value
+    $dNSHostName = $recordSet.Fields.Item("dNSHostName").Value
+    $operatingSystem = $recordSet.Fields.Item("operatingSystem").Value
+    [PSCustomObject]@{
+        Name = $name
+        dNSHostName = $dNSHostName
+        operatingSystem = $operatingSystem
+    }
+    # Move to the next record
+    $recordSet.MoveNext()
+}
+
+# Clean up
+$connection.Close()
+#Endregion Get Computers with COM Object
