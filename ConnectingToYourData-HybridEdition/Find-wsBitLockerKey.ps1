@@ -19,20 +19,37 @@ function Find-wsBitLockerKey {
     #Define MBAM
     $mbamUrl = "https://ws-mbam.wetter.wetterssource.com/MBAMAdministrationService/AdministrationService.svc"
 
-    # Define the SCCM Site Server and Site Code
-    $SCCMServer = "WS-CM1.wetter.wetterssource.com"
-    $SCCMSQLServer = "WS-CM1.wetter.wetterssource.com"
-    $SiteCode = "WS1"
-    $CmDatabase = "CM_$SiteCode"
-
-    # Decide which sources you will search for the key at.
-    $SourcesEnabled = @{
-        Mbam = $true
-        AD = $true
-        CM = $true
-        MeId = $true    
+    $AppConfig = @{
+        # Define the SCCM Site Server and Site Code
+        ConfigMgr = @{
+            SCCMServer = "WS-CM1.wetter.wetterssource.com"
+            SCCMSQLServer = "WS-CM1.wetter.wetterssource.com"
+            SiteCode = "WS1"
+            CmDatabase = "CM_$SiteCode"
+        }
+        # By Default, enable all sources.
+        SourcesEnabled = @{
+            Mbam = $true
+            AD = $true
+            CM = $true
+            MeId = $true    
+        }
     }
 
+    $configRoot = "$([Environment]::GetFolderPath('ApplicationData'))\WettersSource"
+    $Configfile = "$configRoot\Find-wsBitLockerKey.json"
+
+    
+    if (-not (Test-Path -Path $configRoot)) {
+        New-Item -Path $configRoot -ItemType Directory -Force
+    }
+    if (-not (Test-Path -Path $Configfile)) {
+        $AppConfig|ConvertTo-Json|Set-Content -Path $Configfile
+    } else {
+        $content = Get-Content -Path $Configfile -Raw
+        $AppConfig = $content | ConvertFrom-Json
+    }
+    
     #region Make logo image for page  see https://wetterssource.com/ondemandtoast [Update Images] for more details
     $LogoImage = "${Env:Temp}\MMSFFL.png"
     $B64Logo = @'
@@ -65,6 +82,77 @@ nJWDr6cH05MlLMoXcUWrD8uiAcxQAnb5GDW5GfyqksM+sjZJL6bkqyDrFDETyOEXkRLui2cwnhzGcPtR
     }
     #endregion Make Logo
 
+    #region Configure CM Settings
+    Function Set-CMSettings{
+    $xamlConfig = @"
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        Title="Settings Form" Height="250" Width="400" WindowStartupLocation="CenterScreen">
+    <Grid Margin="10">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+        
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="Auto"/>
+            <ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
+        
+        <!-- Labels and Textboxes -->
+        <Label Grid.Row="0" Grid.Column="0" Content="Server:"/>
+        <TextBox Grid.Row="0" Grid.Column="1" Name="SCCMServer" Width="250"/>
+        
+        <Label Grid.Row="1" Grid.Column="0" Content="Database Server:"/>
+        <TextBox Grid.Row="1" Grid.Column="1" Name="SCCMSQLServer" Width="250"/>
+        
+        <Label Grid.Row="2" Grid.Column="0" Content="SiteCode:"/>
+        <TextBox Grid.Row="2" Grid.Column="1" Name="SiteCode" Width="250"/>
+        
+        <!-- Save Button -->
+        <Button Grid.Row="4" Grid.Column="1" Width="100" Height="30" Content="Save" HorizontalAlignment="Right" Name="SaveButton"/>
+    </Grid>
+</Window>
+"@
+        $window = Convert-XAMLtoWindow -XAML $xamlConfig
+        #$configRoot = "$([Environment]::GetFolderPath('ApplicationData'))\WettersSource"
+        #$Configfile = "$configRoot\Find-wsBitLockerKey.json"
+        if (-not (Test-Path -Path $configRoot)) {
+            New-Item -Path $configRoot -ItemType Directory -Force
+        }
+        if (-not (Test-Path -Path $Configfile)) {
+            $AppConfig|ConvertTo-Json|Set-Content -Path $Configfile
+        } else {
+            $content = Get-Content -Path $Configfile -Raw
+            $AppConfig = $content | ConvertFrom-Json
+        }
+        $window.SCCMServer.Text = $AppConfig.ConfigMgr.SCCMServer
+        $window.SCCMSQLServer.Text = $AppConfig.ConfigMgr.SCCMSQLServer
+        $window.SiteCode.Text = $AppConfig.ConfigMgr.SiteCode
+    
+        $window.SaveButton.add_Click{
+            Save-CMConfig
+            [System.Windows.MessageBox]::Show("Settings saved!")
+            $window.Close()
+        }
+    
+        function Save-CMConfig {
+            $AppConfig.ConfigMgr = @{
+                SCCMServer = $window.SCCMServer.Text
+                SCCMSQLServer = $window.SCCMSQLServer.Text
+                SiteCode = $window.SiteCode.Text
+                CmDatabase = "CM_$($window.SiteCode.Text)"
+            }
+            if (-not (Test-Path -Path $configRoot)) {
+                New-Item -Path $configRoot -ItemType Directory -Force
+            }
+            $AppConfig|ConvertTo-Json|Set-Content -Path $Configfile -Force
+        }
+    
+        $null = Show-WPFWindow -Window $window
+    }
+    #endregion configure CM Settings
     Function Write-BitLockerKey {
         ## Function writes the bitlocker key information to the table in the WPF UI.
         [CmdletBinding()]
@@ -152,13 +240,20 @@ nJWDr6cH05MlLMoXcUWrD8uiAcxQAnb5GDW5GfyqksM+sjZJL6bkqyDrFDETyOEXkRLui2cwnhzGcPtR
                 </Grid.RowDefinitions>
                 <TextBlock Grid.Row="0" Grid.Column="0" TextAlignment="Center" Margin="5">BitLocker Key Id:</TextBlock>
                 <TextBox Grid.Row="0" Grid.Column="1" Name="KeyId" Margin="5" HorizontalAlignment="left" VerticalContentAlignment="center" Width="250" Height="22"/>
-                <Button Grid.Row="0" Grid.Column="2" Name="ConnectGraph" IsDefault="False" MinWidth="80" Height="22" Margin="2" Padding="2" HorizontalAlignment="Right" Background="Yellow" Foreground="Black" FontSize="11">Connect Graph</Button>
+                <Button Grid.Row="0" Grid.Column="2" Name="ButFindKeys" MinWidth="80" Height="22" Margin="2" HorizontalAlignment="Left" FontSize="12" Content="Find Keys" />
                 <Image Width="100" Height="84" Grid.Row="0" Grid.Column="3" Grid.RowSpan="2" HorizontalAlignment="right" Margin="0">
                     <Image.Source>
                         <BitmapImage DecodePixelWidth="100" UriSource="$LogoImage" />
                     </Image.Source>
                 </Image>
-                <Button Grid.Row="1" Grid.Column="1" Name="ButFindKeys" MinWidth="80" Height="22" Margin="180,3,10,2" HorizontalAlignment="Left" FontSize="12" Content="Find Keys" />
+                <Button Grid.Row="1" Grid.Column="0" Name="ConnectGraph" IsDefault="False" MinWidth="100" Height="22" Margin="2" Padding="2" HorizontalAlignment="Right" Background="Yellow" Foreground="Black" FontSize="11">Connect to Graph</Button>
+                <StackPanel Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" Orientation="Horizontal" HorizontalAlignment="Left" VerticalAlignment="Center">
+                <TextBlock Text="Sources:" Margin="50,0,10,0" />
+                <CheckBox Content="AD" Margin="10,0,10,0" Name="EnableAD" />
+                <CheckBox Content="CM" Margin="10,0,10,0" Name="EnableCM" />
+                <CheckBox Content="ME-ID" Margin="10,0,10,0" Name="EnableMEID" />
+                <CheckBox Content="MBAM" Margin="10,0,10,0" Name="EnableMBAM" />
+                </StackPanel>
             </Grid>
             <ListView Grid.Row="1" Grid.Column="0" Name="View1" SelectionMode="Single">
                 <ListView.View>
@@ -175,6 +270,7 @@ nJWDr6cH05MlLMoXcUWrD8uiAcxQAnb5GDW5GfyqksM+sjZJL6bkqyDrFDETyOEXkRLui2cwnhzGcPtR
                     <ColumnDefinition Width="425"/>
                 </Grid.ColumnDefinitions>
                 <Button Grid.Column="0" HorizontalAlignment="Left" Name='ClearList' MinWidth="80" Margin="3" Content="Clear List" />
+                <Button Grid.Column="0" HorizontalAlignment="Left" Name="ConfigCM" Content="Configure CM" Margin="200,3,3,3"/>
                 <Button Grid.Column="1" HorizontalAlignment="Right" Name='CopyRecoveryKey' MinWidth="120" Margin="3" Content="Copy Recovery Key" />
             </Grid>
         </Grid>
@@ -185,6 +281,42 @@ nJWDr6cH05MlLMoXcUWrD8uiAcxQAnb5GDW5GfyqksM+sjZJL6bkqyDrFDETyOEXkRLui2cwnhzGcPtR
     $window = Convert-XAMLtoWindow -XAML $xaml1
     $window.View1.ItemsSource = @()
 
+    #region check what sources are enabled
+    $window.EnableAD.IsChecked = $AppConfig.SourcesEnabled.AD
+    $window.EnableCM.IsChecked = $AppConfig.SourcesEnabled.CM
+    $window.EnableMEID.IsChecked = $AppConfig.SourcesEnabled.MeId
+    $window.EnableMBAM.IsChecked = $AppConfig.SourcesEnabled.Mbam
+    #endregion check sources
+
+    #region Enable/Disable Sources
+    function Save-SourceConfig {
+        $AppConfig.SourcesEnabled = @{
+            AD = $window.EnableAD.IsChecked
+            CM = $window.EnableCM.IsChecked
+            Mbam = $window.EnableMBAM.IsChecked
+            MeId = $window.EnableMEID.IsChecked
+        }
+        if (-not (Test-Path -Path $configRoot)) {
+            New-Item -Path $configRoot -ItemType Directory -Force
+        }
+        $AppConfig|ConvertTo-Json|Set-Content -Path $Configfile -Force
+    }
+
+    $window.EnableAD.add_Click{
+        Save-SourceConfig
+    }
+    $window.EnableCM.add_Click{
+        Save-SourceConfig
+    }
+    $window.EnableMBAM.add_Click{
+        Save-SourceConfig
+    }
+    $window.EnableMEID.add_Click{
+        Save-SourceConfig
+    }
+
+    #endregion Enable/Disable sources
+
     #add a Click action to the Find Keys button.
     $window.ButFindKeys.add_Click{
         #change the button to searching....
@@ -193,14 +325,14 @@ nJWDr6cH05MlLMoXcUWrD8uiAcxQAnb5GDW5GfyqksM+sjZJL6bkqyDrFDETyOEXkRLui2cwnhzGcPtR
         #Read the key text from the input box in the dialog
         $KeyToFind = $window.KeyId.Text
 
-        If ($SourcesEnabled.MeId -eq $true){
+        If ($AppConfig.SourcesEnabled.MeId -eq $true){
             $AadKey = Get-MgInformationProtectionBitlockerRecoveryKey -BitlockerRecoveryKeyId "$KeyToFind" -Property Key -ErrorAction SilentlyContinue
             If(-not [string]::IsNullOrEmpty($AadKey.Key)){
                 Write-BitLockerKey -Source "Entra ID" -KeyId $KeyToFind -RecoveryKey "$($AadKey.Key)"
             }    
         }
 
-        if ($SourcesEnabled.AD -eq $true){
+        if ($AppConfig.SourcesEnabled.AD -eq $true){
             $rg=Convert-GuidToHexArray -guid "$KeyToFind"
             $AdKey = Get-ADObject -Filter {objectclass -eq "msFVE-RecoveryInformation" -and msFVE-RecoveryGuid -eq $rg} -Properties msFVE-RecoveryPassword, msFVE-RecoveryGuid | Select-Object @{Name="ComputerName";Expression={(Get-ADComputer -Identity "$(($_.DistinguishedName -split ',')[1..(($_.DistinguishedName -split ',').count -1)] -join ',')").Name}}, @{Name="RecoveryGuid";Expression={[guid]::new($_.'msFVE-RecoveryGuid')}}, msFVE-RecoveryPassword
             If(-not [string]::IsNullOrEmpty($AdKey.'msFVE-RecoveryPassword')){
@@ -208,14 +340,14 @@ nJWDr6cH05MlLMoXcUWrD8uiAcxQAnb5GDW5GfyqksM+sjZJL6bkqyDrFDETyOEXkRLui2cwnhzGcPtR
             }    
         }
 
-        if ($SourcesEnabled.Mbam -eq $true){
+        if ($AppConfig.SourcesEnabled.Mbam -eq $true){
             $MbamKey = Get-MBAMKey -KeyId $KeyToFind
             If(-not [string]::IsNullOrEmpty($MbamKey)){
                 Write-BitLockerKey -Source "MBAM" -KeyId $KeyToFind -RecoveryKey "$MbamKey"
             }    
         }
 
-        if ($SourcesEnabled.CM -eq $true){
+        if ($AppConfig.SourcesEnabled.CM -eq $true){
             $Query = "EXEC RecoveryAndHardwareRead.GetRecoveryKey @RecoveryKeyId='$KeyToFind', @Reason='Other'"
             $CMKey = Invoke-SqlDataReader -ServerInstance $SCCMSQLServer -Database $CmDatabase -Query $Query
             If(-not [string]::IsNullOrEmpty($CMKey.RecoveryKey)){
@@ -224,6 +356,10 @@ nJWDr6cH05MlLMoXcUWrD8uiAcxQAnb5GDW5GfyqksM+sjZJL6bkqyDrFDETyOEXkRLui2cwnhzGcPtR
         }
         #set the button back to original text so it shows that its done searching.
         $window.ButFindKeys.Content = "Find Keys"
+    }
+
+    $window.ConfigCM.add_Click{
+        Set-CMSettings
     }
 
     #Add click action to button to clear the list of recovered keys.
@@ -248,6 +384,7 @@ nJWDr6cH05MlLMoXcUWrD8uiAcxQAnb5GDW5GfyqksM+sjZJL6bkqyDrFDETyOEXkRLui2cwnhzGcPtR
         }    
     }
     function Convert-GuidToHexArray {
+        # Active Directory needs guids in hex arrays to search for them.  This function converts the guid to a proper hex array.
         param (
             [string]$guid
         )
@@ -265,6 +402,7 @@ nJWDr6cH05MlLMoXcUWrD8uiAcxQAnb5GDW5GfyqksM+sjZJL6bkqyDrFDETyOEXkRLui2cwnhzGcPtR
         return $hexString
     }
     function Get-MBAMKey {
+        #Queries the MBAM SOAP API to get a bitlocker recovery key.
         [CmdletBinding()]
         param (
             [string]$KeyId
@@ -413,10 +551,12 @@ function Invoke-SqlDataReader {
     }
     #endregion SQL Reader
 
+    #Button to copy the key to the clipboard
     $window.CopyRecoveryKey.add_Click{
         ($window.View1.SelectedItems).RecoveryKey | Clip
     }
 
+    # Button connects to graph api using the Graph powershell sdk.
     $window.ConnectGraph.add_Click{
         $Scopes = @(
             "User.Read.All"
@@ -427,14 +567,14 @@ function Invoke-SqlDataReader {
         If (Test-GraphConnection){
             $window.ConnectGraph.Background="Green"
             $window.ConnectGraph.Foreground="White"
-            $window.ConnectGraph.Content = "Connected"
+            $window.ConnectGraph.Content = "Connected to Graph"
         }
     }    
 
     If (Test-GraphConnection){
         $window.ConnectGraph.Background="Green"
         $window.ConnectGraph.Foreground="White"
-        $window.ConnectGraph.Content = "Connected"
+        $window.ConnectGraph.Content = "Connected to Graph"
     }
 
     $null = Show-WPFWindow -Window $window
