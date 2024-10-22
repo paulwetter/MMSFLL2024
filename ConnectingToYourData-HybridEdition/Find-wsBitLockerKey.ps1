@@ -317,6 +317,7 @@ nJWDr6cH05MlLMoXcUWrD8uiAcxQAnb5GDW5GfyqksM+sjZJL6bkqyDrFDETyOEXkRLui2cwnhzGcPtR
 
     #endregion Enable/Disable sources
 
+    #Region Execute Search
     #add a Click action to the Find Keys button.
     $window.ButFindKeys.add_Click{
         #change the button to searching....
@@ -349,7 +350,7 @@ nJWDr6cH05MlLMoXcUWrD8uiAcxQAnb5GDW5GfyqksM+sjZJL6bkqyDrFDETyOEXkRLui2cwnhzGcPtR
 
         if ($AppConfig.SourcesEnabled.CM -eq $true){
             $Query = "EXEC RecoveryAndHardwareRead.GetRecoveryKey @RecoveryKeyId='$KeyToFind', @Reason='Other'"
-            $CMKey = Invoke-SqlDataReader -ServerInstance $SCCMSQLServer -Database $CmDatabase -Query $Query
+            $CMKey = Invoke-SqlDataReader -ServerInstance $AppConfig.ConfigMgr.SCCMSQLServer -Database $AppConfig.ConfigMgr.CmDatabase -Query $Query
             If(-not [string]::IsNullOrEmpty($CMKey.RecoveryKey)){
                 Write-BitLockerKey -Source "ConfigMgr" -KeyId $KeyToFind -RecoveryKey $CMKey.RecoveryKey
             }
@@ -357,6 +358,7 @@ nJWDr6cH05MlLMoXcUWrD8uiAcxQAnb5GDW5GfyqksM+sjZJL6bkqyDrFDETyOEXkRLui2cwnhzGcPtR
         #set the button back to original text so it shows that its done searching.
         $window.ButFindKeys.Content = "Find Keys"
     }
+    #EndRegion Execute Search
 
     $window.ConfigCM.add_Click{
         Set-CMSettings
