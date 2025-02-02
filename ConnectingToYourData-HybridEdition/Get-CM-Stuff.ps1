@@ -4,10 +4,35 @@ $SCCMSQLServer = "WS-CM1.wetter.wetterssource.com"
 $SiteCode = "WS1"  # Replace with your SCCM site code
 $CmDatabase = "CM_$SiteCode"
 
+#region CM CmdLets
+
+##https://learn.microsoft.com/en-us/powershell/module/configurationmanager/?view=sccm-ps
+#Import CM Powershell module and change to the CM Site drive
+Import-Module ConfigurationManager
+$site = (Get-PSDrive | where {$_.Provider.Name -eq 'CMSite'}).Name
+cd "$($site):"
+
+#the closest thing in you CM cmdlets will not return the ObjectGuid.  ObjectGuid is useful for relating to other datasets.
+$Devices = Get-CMDevice
+$Devices[0]
+$Devices.Name
+
+$Devices.foreach({
+    [PSCustomObject]@{
+        Name = $_.Name
+        AADDeviceID = $_.AADDeviceID
+        ObjectGuid = $_.ObjectGUID
+    }
+})
+#AADDeviceID will be useful for devices that are registered to MEID as the MEID Guid == AD ObjectGuid
+#endregion
+
+
+#region Query all computers from CM with WMI
+
 # Define the WMI namespace
 $namespace = "ROOT\sms\site_$SiteCode"
 
-#region Query all computers from CM with WMI
 $devices = Get-WmiObject -Namespace $namespace -Class SMS_R_System -ComputerName $SCCMServer
 
 # Display the device names
@@ -227,27 +252,6 @@ $SQLresults.foreach({
 #$SQLresults | Export-Csv -Path
 #Endregion SQL
 
-
-#region CM CmdLets
-
-#Import CM Powershell module and change to the CM Site drive
-Import-Module ConfigurationManager
-$site = (Get-PSDrive | where {$_.Provider.Name -eq 'CMSite'}).Name
-cd "$($site):"
-
-#the closest thing in you CM cmdlets will not return the ObjectGuid.  ObjectGuid is useful for relating to other datasets.
-$Devices = Get-CMDevice
-$Devices.Name
-
-$Devices.foreach({
-    [PSCustomObject]@{
-        Name = $_.Name
-        AADDeviceID = $_.AADDeviceID
-        ObjectGuid = $_.ObjectGUID
-    }
-})
-#AADDeviceID will be useful for devices that are registered to MEID as the MEID Guid == AD ObjectGuid
-#endregion
 
 
 #region BitLocker retrieval.
