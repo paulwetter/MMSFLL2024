@@ -16,9 +16,6 @@ function Find-wsBitLockerKey {
         break
     }
 
-    #Define MBAM
-    $mbamUrl = "https://ws-mbam.wetter.wetterssource.com/MBAMAdministrationService/AdministrationService.svc"
-
     $AppConfig = @{
         # Define the SCCM Site Server and Site Code
         ConfigMgr = @{
@@ -33,6 +30,9 @@ function Find-wsBitLockerKey {
             AD = $true
             CM = $true
             MeId = $true    
+        }
+        Mbam = @{
+            MbamUrl = "https://ws-mbam.wetter.wetterssource.com/MBAMAdministrationService/AdministrationService.svc"
         }
     }
 
@@ -86,7 +86,7 @@ nJWDr6cH05MlLMoXcUWrD8uiAcxQAnb5GDW5GfyqksM+sjZJL6bkqyDrFDETyOEXkRLui2cwnhzGcPtR
     Function Set-CMSettings{
     $xamlConfig = @"
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-        Title="Settings Form" Height="250" Width="400" WindowStartupLocation="CenterScreen">
+        Title="ConfigMgr Settings" Height="250" Width="400" WindowStartupLocation="CenterScreen">
     <Grid Margin="10">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
@@ -153,6 +153,68 @@ nJWDr6cH05MlLMoXcUWrD8uiAcxQAnb5GDW5GfyqksM+sjZJL6bkqyDrFDETyOEXkRLui2cwnhzGcPtR
         $null = Show-WPFWindow -Window $window
     }
     #endregion configure CM Settings
+
+    #region Configure CM Settings
+    Function Set-MbamSettings{
+        $xamlConfig = @"
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        Title="Mbam Settings" Height="250" Width="400" WindowStartupLocation="CenterScreen">
+    <Grid Margin="10">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+        
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="Auto"/>
+            <ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
+        
+        <!-- Labels and Textboxes -->
+        <Label Grid.Row="0" Grid.Column="0" Content="MbamUrl:"/>
+        <TextBox Grid.Row="0" Grid.Column="1" Name="MbamUrl" Width="300"/>
+        
+        <!-- Save Button -->
+        <Button Grid.Row="4" Grid.Column="1" Width="100" Height="30" Content="Save" HorizontalAlignment="Right" Name="SaveButton"/>
+    </Grid>
+</Window>
+"@
+            $window = Convert-XAMLtoWindow -XAML $xamlConfig
+            #$configRoot = "$([Environment]::GetFolderPath('ApplicationData'))\WettersSource"
+            #$Configfile = "$configRoot\Find-wsBitLockerKey.json"
+            if (-not (Test-Path -Path $configRoot)) {
+                New-Item -Path $configRoot -ItemType Directory -Force
+            }
+            if (-not (Test-Path -Path $Configfile)) {
+                $AppConfig|ConvertTo-Json|Set-Content -Path $Configfile
+            } else {
+                $content = Get-Content -Path $Configfile -Raw
+                $AppConfig = $content | ConvertFrom-Json
+            }
+            $window.MbamUrl.Text = $AppConfig.Mbam.MbamUrl
+        
+            $window.SaveButton.add_Click{
+                Save-MbamConfig
+                [System.Windows.MessageBox]::Show("Settings saved!")
+                $window.Close()
+            }
+        
+            function Save-MbamConfig {
+                $AppConfig.Mbam = @{
+                    MbamUrl = $window.MbamUrl.Text
+                }
+                if (-not (Test-Path -Path $configRoot)) {
+                    New-Item -Path $configRoot -ItemType Directory -Force
+                }
+                $AppConfig|ConvertTo-Json|Set-Content -Path $Configfile -Force
+            }
+        
+            $null = Show-WPFWindow -Window $window
+        }
+    #endregion configure CM Settings
+    
     Function Write-BitLockerKey {
         ## Function writes the bitlocker key information to the table in the WPF UI.
         [CmdletBinding()]
@@ -271,6 +333,7 @@ nJWDr6cH05MlLMoXcUWrD8uiAcxQAnb5GDW5GfyqksM+sjZJL6bkqyDrFDETyOEXkRLui2cwnhzGcPtR
                 </Grid.ColumnDefinitions>
                 <Button Grid.Column="0" HorizontalAlignment="Left" Name='ClearList' MinWidth="80" Margin="3" Content="Clear List" />
                 <Button Grid.Column="0" HorizontalAlignment="Left" Name="ConfigCM" Content="Configure CM" Margin="200,3,3,3"/>
+                <Button Grid.Column="1" HorizontalAlignment="Left" Name="ConfigMbam" Content="Configure MBAM" Margin="3,3,3,3"/>
                 <Button Grid.Column="1" HorizontalAlignment="Right" Name='CopyRecoveryKey' MinWidth="120" Margin="3" Content="Copy Recovery Key" />
             </Grid>
         </Grid>
@@ -342,7 +405,7 @@ nJWDr6cH05MlLMoXcUWrD8uiAcxQAnb5GDW5GfyqksM+sjZJL6bkqyDrFDETyOEXkRLui2cwnhzGcPtR
         }
 
         if ($AppConfig.SourcesEnabled.Mbam -eq $true){
-            $MbamKey = Get-MBAMKey -KeyId $KeyToFind
+            $MbamKey = Get-MBAMKey -KeyId $KeyToFind -mbamUrl $AppConfig.Mbam.MbamUrl
             If(-not [string]::IsNullOrEmpty($MbamKey)){
                 Write-BitLockerKey -Source "MBAM" -KeyId $KeyToFind -RecoveryKey "$MbamKey"
             }    
@@ -362,6 +425,10 @@ nJWDr6cH05MlLMoXcUWrD8uiAcxQAnb5GDW5GfyqksM+sjZJL6bkqyDrFDETyOEXkRLui2cwnhzGcPtR
 
     $window.ConfigCM.add_Click{
         Set-CMSettings
+    }
+
+    $window.ConfigMbam.add_Click{
+        Set-MbamSettings
     }
 
     #Add click action to button to clear the list of recovered keys.
@@ -407,7 +474,8 @@ nJWDr6cH05MlLMoXcUWrD8uiAcxQAnb5GDW5GfyqksM+sjZJL6bkqyDrFDETyOEXkRLui2cwnhzGcPtR
         #Queries the MBAM SOAP API to get a bitlocker recovery key.
         [CmdletBinding()]
         param (
-            [string]$KeyId
+            [string]$KeyId,
+            [string]$mbamUrl
         )
         $soapBody = @"
 <s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope" xmlns:wsa="http://www.w3.org/2005/08/addressing">
